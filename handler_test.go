@@ -3,13 +3,14 @@ package socketio
 import (
 	"testing"
 
-	. "github.com/smartystreets/goconvey/convey"
-	"net/http"
 	"io"
+	"net/http"
+
 	"github.com/googollee/go-engine.io"
+	. "github.com/smartystreets/goconvey/convey"
 )
 
-type FakeBroadcastAdaptor struct {}
+type FakeBroadcastAdaptor struct{}
 
 func (f *FakeBroadcastAdaptor) Join(room string, socket Socket) error {
 	return nil
@@ -23,7 +24,7 @@ func (f *FakeBroadcastAdaptor) Send(ignore Socket, room, event string, args ...i
 	return nil
 }
 
-type FakeReadCloser struct {}
+type FakeReadCloser struct{}
 
 func (fr *FakeReadCloser) Read(p []byte) (n int, err error) {
 	p = append(p, byte(128))
@@ -34,7 +35,7 @@ func (fr *FakeReadCloser) Close() error {
 	return nil
 }
 
-type FakeWriteCloser struct {}
+type FakeWriteCloser struct{}
 
 func (fr *FakeWriteCloser) Write(p []byte) (n int, err error) {
 	return len(p), nil
@@ -44,7 +45,7 @@ func (fr *FakeWriteCloser) Close() error {
 	return nil
 }
 
-type FakeSockConnection struct {}
+type FakeSockConnection struct{}
 
 func (f *FakeSockConnection) Id() string {
 	return "test1"
@@ -66,7 +67,6 @@ func (f *FakeSockConnection) NextWriter(messageType engineio.MessageType) (io.Wr
 	return &FakeWriteCloser{}, nil
 }
 
-
 func TestHandler(t *testing.T) {
 	//BugFix missed
 	//Method: handler.onPacket
@@ -78,12 +78,11 @@ func TestHandler(t *testing.T) {
 	Convey("Call ACK handler by ACK id received from client", t, func() {
 		saver := &FrameSaver{}
 		var handlerCalled bool
-		baseHandlerInstance := newBaseHandler("some:event", &FakeBroadcastAdaptor{})
-		socketInstance := newSocket(&FakeSockConnection{}, baseHandlerInstance)
-		c, _ := newCaller(func () {handlerCalled = true})
+		socketInstance := newSocket(&FakeSockConnection{}, newNamespace(&FakeBroadcastAdaptor{}))
+		c, _ := newCaller(func() { handlerCalled = true })
 
 		socketInstance.acks[0] = c
-		socketInstance.onPacket(newDecoder(saver), &packet{Type:_ACK, Id:0, Data:"[]", NSP:"/"})
+		socketInstance.onPacket(newDecoder(saver), &packet{Type: _ACK, Id: 0, Data: "[]", NSP: ""})
 
 		So(len(socketInstance.acks), ShouldEqual, 0)
 		So(handlerCalled, ShouldBeTrue)
@@ -92,12 +91,11 @@ func TestHandler(t *testing.T) {
 	Convey("Call BINARY ACK handler by BINARY ACK id received from client", t, func() {
 		saver := &FrameSaver{}
 		var handlerCalled bool
-		baseHandlerInstance := newBaseHandler("some:event", &FakeBroadcastAdaptor{})
-		socketInstance := newSocket(&FakeSockConnection{}, baseHandlerInstance)
-		c, _ := newCaller(func () {handlerCalled = true})
+		socketInstance := newSocket(&FakeSockConnection{}, newNamespace(&FakeBroadcastAdaptor{}))
+		c, _ := newCaller(func() { handlerCalled = true })
 
 		socketInstance.acks[0] = c
-		socketInstance.onPacket(newDecoder(saver), &packet{Type:_BINARY_ACK, Id:0, Data:"[]", NSP:"/"})
+		socketInstance.onPacket(newDecoder(saver), &packet{Type: _BINARY_ACK, Id: 0, Data: "[]", NSP: ""})
 
 		So(len(socketInstance.acks), ShouldEqual, 0)
 		So(handlerCalled, ShouldBeTrue)

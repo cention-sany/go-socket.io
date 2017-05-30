@@ -46,11 +46,11 @@ type socket struct {
 	mu        sync.Mutex
 }
 
-func newSocket(conn engineio.Conn, base *baseHandler) *socket {
+func newSocket(conn engineio.Conn, ns *namespace) *socket {
 	ret := &socket{
 		conn: conn,
 	}
-	ret.socketHandler = newSocketHandler(ret, base)
+	ret.socketHandler = newSocketHandler(ret, ns.root)
 	return ret
 }
 
@@ -122,11 +122,15 @@ func (s *socket) sendId(args []interface{}) (int, error) {
 func (s *socket) loop() error {
 	defer func() {
 		s.LeaveAll()
-		p := packet{
-			Type: _DISCONNECT,
-			Id:   -1,
+		for ns := range s.root {
+			// trigger disconnect event on all namespaces
+			p := packet{
+				Type: _DISCONNECT,
+				Id:   -1,
+				NSP:  ns,
+			}
+			s.socketHandler.onPacket(nil, &p)
 		}
-		s.socketHandler.onPacket(nil, &p)
 	}()
 
 	p := packet{
@@ -137,7 +141,7 @@ func (s *socket) loop() error {
 	if err := encoder.Encode(p); err != nil {
 		return err
 	}
-	s.socketHandler.onPacket(nil, &p)
+	s.socketHandler.onPacket(nil, &p) // use default namespace (server's)
 	for {
 		decoder := newDecoder(s.conn)
 		var p packet

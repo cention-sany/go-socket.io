@@ -1,4 +1,8 @@
-# socket.io
+# Forked socket.io
+
+[![GoDoc](http://godoc.org/github.com/cention-sany/go-socket.io?status.svg)](http://godoc.org/github.com/cention-sany/go-socket.io) [![Build Status](https://travis-ci.org/cention-sany/go-socket.io.svg)](https://travis-ci.org/cention-sany/go-socket.io)
+
+# Original author socket.io
 
 [![GoDoc](http://godoc.org/github.com/googollee/go-socket.io?status.svg)](http://godoc.org/github.com/googollee/go-socket.io) [![Build Status](https://travis-ci.org/googollee/go-socket.io.svg)](https://travis-ci.org/googollee/go-socket.io)
 

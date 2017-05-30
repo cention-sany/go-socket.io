@@ -1,9 +1,10 @@
 package socketio
 
 import (
-	"github.com/googollee/go-engine.io"
 	"net/http"
 	"time"
+
+	"github.com/googollee/go-engine.io"
 )
 
 // Server is the server of socket.io.
@@ -98,7 +99,7 @@ func (s *Server) loop() {
 		if err != nil {
 			return
 		}
-		s := newSocket(conn, s.baseHandler)
+		s := newSocket(conn, s.namespace)
 		go func(s *socket) {
 			s.loop()
 		}(s)

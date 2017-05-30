@@ -15,13 +15,13 @@ type Namespace interface {
 
 type namespace struct {
 	*baseHandler
-	root map[string]Namespace
+	root map[string]*namespace
 }
 
 func newNamespace(broadcast BroadcastAdaptor) *namespace {
 	ret := &namespace{
 		baseHandler: newBaseHandler("", broadcast),
-		root:        make(map[string]Namespace),
+		root:        make(map[string]*namespace),
 	}
 	ret.root[ret.Name()] = ret
 	return ret

@@ -1,8 +1,10 @@
 package socketio
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"sync"
 )
 
@@ -36,28 +38,25 @@ func (h *baseHandler) On(event string, f interface{}) error {
 
 type socketHandler struct {
 	*baseHandler
+	root   map[string]*namespace
 	acksmu sync.Mutex
 	acks   map[int]*caller
 	socket *socket
 	rooms  map[string]struct{}
 }
 
-func newSocketHandler(s *socket, base *baseHandler) *socketHandler {
-	events := make(map[string]*caller)
-	base.evMu.Lock()
-	for k, v := range base.events {
-		events[k] = v
+func newSocketHandler(s *socket, ns map[string]*namespace) *socketHandler {
+	nspace, _ := ns[""]
+	var base *baseHandler
+	if nspace != nil {
+		base = nspace.baseHandler
 	}
-	base.evMu.Unlock()
 	return &socketHandler{
-		baseHandler: &baseHandler{
-			events:    events,
-			broadcast: base.broadcast,
-			evMu:      base.evMu,
-		},
-		acks:   make(map[int]*caller),
-		socket: s,
-		rooms:  make(map[string]struct{}),
+		baseHandler: base,
+		root:        ns,
+		acks:        make(map[int]*caller),
+		socket:      s,
+		rooms:       make(map[string]struct{}),
 	}
 }
 
@@ -89,28 +88,30 @@ func (h *socketHandler) Emit(event string, args ...interface{}) error {
 }
 
 func (h *socketHandler) Rooms() []string {
-	ret := make([]string, len(h.rooms))
-	i := 0
+	ret := make([]string, 0, len(h.rooms))
 	for room := range h.rooms {
-		ret[i] = room
-		i++
+		if strings.HasPrefix(room, fmt.Sprint(h.name, ":")) {
+			ret = append(ret, room)
+		}
 	}
 	return ret
 }
 
 func (h *socketHandler) Join(room string) error {
-	if err := h.baseHandler.broadcast.Join(h.broadcastName(room), h.socket); err != nil {
+	roomName := h.broadcastName(room)
+	if err := h.baseHandler.broadcast.Join(roomName, h.socket); err != nil {
 		return err
 	}
-	h.rooms[room] = struct{}{}
+	h.rooms[roomName] = struct{}{}
 	return nil
 }
 
 func (h *socketHandler) Leave(room string) error {
-	if err := h.baseHandler.broadcast.Leave(h.broadcastName(room), h.socket); err != nil {
+	roomName := h.broadcastName(room)
+	if err := h.baseHandler.broadcast.Leave(roomName, h.socket); err != nil {
 		return err
 	}
-	delete(h.rooms, room)
+	delete(h.rooms, roomName)
 	return nil
 }
 
@@ -135,7 +136,15 @@ func (h *baseHandler) broadcastName(room string) string {
 	return fmt.Sprintf("%s:%s", h.name, room)
 }
 
+var unknownNS = errors.New("socketio: unknown namespace for on packet")
+
 func (h *socketHandler) onPacket(decoder *decoder, packet *packet) ([]interface{}, error) {
+	ns, ok := h.root[packet.NSP]
+	if !ok {
+		return nil, unknownNS
+	}
+	h.baseHandler = ns.baseHandler
+	h.socket.namespace = packet.NSP
 	var message string
 	switch packet.Type {
 	case _CONNECT:
@@ -153,9 +162,9 @@ func (h *socketHandler) onPacket(decoder *decoder, packet *packet) ([]interface{
 			message = decoder.Message()
 		}
 	}
-	h.evMu.Lock()
-	c, ok := h.events[message]
-	h.evMu.Unlock()
+	ns.evMu.Lock()
+	c, ok := ns.events[message]
+	ns.evMu.Unlock()
 	if !ok {
 		// If the message is not recognized by the server, the decoder.currentCloser
 		// needs to be closed otherwise the server will be stuck until the e
@@ -208,6 +217,7 @@ func (h *socketHandler) onAck(id int, decoder *decoder, packet *packet) error {
 	if err := decoder.DecodeData(packet); err != nil {
 		return err
 	}
+
 	c.Call(h.socket, args)
 	return nil
 }
