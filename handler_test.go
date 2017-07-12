@@ -82,7 +82,7 @@ func TestHandler(t *testing.T) {
 		c, _ := newCaller(func() { handlerCalled = true })
 
 		socketInstance.acks[0] = c
-		socketInstance.onPacket(newDecoder(saver), &packet{Type: _ACK, Id: 0, Data: "[]", NSP: ""})
+		socketInstance.namespace("").onPacket(newDecoder(saver), &packet{Type: _ACK, Id: 0, Data: "[]", NSP: ""})
 
 		So(len(socketInstance.acks), ShouldEqual, 0)
 		So(handlerCalled, ShouldBeTrue)
@@ -95,7 +95,7 @@ func TestHandler(t *testing.T) {
 		c, _ := newCaller(func() { handlerCalled = true })
 
 		socketInstance.acks[0] = c
-		socketInstance.onPacket(newDecoder(saver), &packet{Type: _BINARY_ACK, Id: 0, Data: "[]", NSP: ""})
+		socketInstance.namespace("").onPacket(newDecoder(saver), &packet{Type: _BINARY_ACK, Id: 0, Data: "[]", NSP: ""})
 
 		So(len(socketInstance.acks), ShouldEqual, 0)
 		So(handlerCalled, ShouldBeTrue)

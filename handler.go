@@ -3,7 +3,6 @@ package socketio
 import (
 	"errors"
 	"fmt"
-	"reflect"
 	"strings"
 	"sync"
 )
@@ -38,53 +37,16 @@ func (h *baseHandler) On(event string, f interface{}) error {
 
 type socketHandler struct {
 	*baseHandler
-	root   map[string]*namespace
-	acksmu sync.Mutex
-	acks   map[int]*caller
-	socket *socket
+	socket *nspSocket
 	rooms  map[string]struct{}
 }
 
-func newSocketHandler(s *socket, ns map[string]*namespace) *socketHandler {
-	nspace, _ := ns[""]
-	var base *baseHandler
-	if nspace != nil {
-		base = nspace.baseHandler
-	}
+func newSocketHandler(ns *nspSocket, base *baseHandler) *socketHandler {
 	return &socketHandler{
 		baseHandler: base,
-		root:        ns,
-		acks:        make(map[int]*caller),
-		socket:      s,
+		socket:      ns,
 		rooms:       make(map[string]struct{}),
 	}
-}
-
-func (h *socketHandler) Emit(event string, args ...interface{}) error {
-	var c *caller
-	if l := len(args); l > 0 {
-		fv := reflect.ValueOf(args[l-1])
-		if fv.Kind() == reflect.Func {
-			var err error
-			c, err = newCaller(args[l-1])
-			if err != nil {
-				return err
-			}
-			args = args[:l-1]
-		}
-	}
-	args = append([]interface{}{event}, args...)
-	if c != nil {
-		id, err := h.socket.sendId(args)
-		if err != nil {
-			return err
-		}
-		h.acksmu.Lock()
-		h.acks[id] = c
-		h.acksmu.Unlock()
-		return nil
-	}
-	return h.socket.send(args)
 }
 
 func (h *socketHandler) Rooms() []string {
@@ -138,13 +100,9 @@ func (h *baseHandler) broadcastName(room string) string {
 
 var unknownNS = errors.New("socketio: unknown namespace for on packet")
 
+// onPacket handle the event callback On based on the incoming packet. packet
+// is already been partially decode. Only packet data is not decoded.
 func (h *socketHandler) onPacket(decoder *decoder, packet *packet) ([]interface{}, error) {
-	ns, ok := h.root[packet.NSP]
-	if !ok {
-		return nil, unknownNS
-	}
-	h.baseHandler = ns.baseHandler
-	h.socket.namespace = packet.NSP
 	var message string
 	switch packet.Type {
 	case _CONNECT:
@@ -162,9 +120,9 @@ func (h *socketHandler) onPacket(decoder *decoder, packet *packet) ([]interface{
 			message = decoder.Message()
 		}
 	}
-	ns.evMu.Lock()
-	c, ok := ns.events[message]
-	ns.evMu.Unlock()
+	h.evMu.Lock()
+	c, ok := h.events[message]
+	h.evMu.Unlock()
 	if !ok {
 		// If the message is not recognized by the server, the decoder.currentCloser
 		// needs to be closed otherwise the server will be stuck until the e
@@ -203,14 +161,14 @@ func (h *socketHandler) onPacket(decoder *decoder, packet *packet) ([]interface{
 }
 
 func (h *socketHandler) onAck(id int, decoder *decoder, packet *packet) error {
-	h.acksmu.Lock()
-	c, ok := h.acks[id]
+	h.socket.acksmu.Lock()
+	c, ok := h.socket.acks[id]
 	if !ok {
-		h.acksmu.Unlock()
+		h.socket.acksmu.Unlock()
 		return nil
 	}
-	delete(h.acks, id)
-	h.acksmu.Unlock()
+	delete(h.socket.acks, id)
+	h.socket.acksmu.Unlock()
 
 	args := c.GetArgs()
 	packet.Data = &args

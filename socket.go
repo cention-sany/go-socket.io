@@ -39,18 +39,26 @@ type Socket interface {
 }
 
 type socket struct {
-	*socketHandler
-	conn      engineio.Conn
-	namespace string
-	id        int
-	mu        sync.Mutex
+	// shouldn't need protection as its write only access by socket.loop once
+	// during socket creation.
+	nsps   map[string]*nspSocket
+	conn   engineio.Conn
+	id     int
+	mu     sync.Mutex
+	acks   map[int]*caller
+	acksmu sync.Mutex
 }
 
 func newSocket(conn engineio.Conn, ns *namespace) *socket {
+	nss := map[string]*nspSocket{}
 	ret := &socket{
 		conn: conn,
+		acks: make(map[int]*caller),
 	}
-	ret.socketHandler = newSocketHandler(ret, ns.root)
+	for k, v := range ns.root {
+		nss[k] = newNspSocket(ret, v.baseHandler)
+	}
+	ret.nsps = nss
 	return ret
 }
 
@@ -62,74 +70,34 @@ func (s *socket) Request() *http.Request {
 	return s.conn.Request()
 }
 
-func (s *socket) Emit(event string, args ...interface{}) error {
-	if err := s.socketHandler.Emit(event, args...); err != nil {
-		return err
-	}
-	if event == "disconnect" {
-		s.conn.Close()
-	}
-	return nil
-}
-
 func (s *socket) Disconnect() {
 	s.conn.Close()
 }
 
-func (s *socket) send(args []interface{}) error {
-	packet := packet{
-		Type: _EVENT,
-		Id:   -1,
-		NSP:  s.namespace,
-		Data: args,
+func (s *socket) namespace(nsp string) *nspSocket {
+	n := s.nsps[nsp]
+	if n == nil {
+		// fallback to default namespace
+		n = s.nsps[""]
 	}
-	encoder := newEncoder(s.conn)
-	return encoder.Encode(packet)
+	return n
 }
 
-func (s *socket) sendConnect() error {
-	packet := packet{
-		Type: _CONNECT,
-		Id:   -1,
-		NSP:  s.namespace,
-	}
-	encoder := newEncoder(s.conn)
-	return encoder.Encode(packet)
-}
-
-func (s *socket) sendId(args []interface{}) (int, error) {
-	s.mu.Lock()
-	packet := packet{
-		Type: _EVENT,
-		Id:   s.id,
-		NSP:  s.namespace,
-		Data: args,
-	}
-	s.id++
-	if s.id < 0 {
-		s.id = 0
-	}
-	s.mu.Unlock()
-
-	encoder := newEncoder(s.conn)
-	err := encoder.Encode(packet)
-	if err != nil {
-		return -1, nil
-	}
-	return packet.Id, nil
-}
-
-func (s *socket) loop() error {
+func (s *socket) loop() (err error) {
 	defer func() {
-		s.LeaveAll()
-		for ns := range s.root {
+		for k, v := range s.nsps {
+			if v.disconnected {
+				continue
+			}
+			v.LeaveAll()
 			// trigger disconnect event on all namespaces
 			p := packet{
 				Type: _DISCONNECT,
 				Id:   -1,
-				NSP:  ns,
+				NSP:  k,
 			}
-			s.socketHandler.onPacket(nil, &p)
+			v.onPacket(nil, &p)
+			v.disconnected = true
 		}
 	}()
 
@@ -138,24 +106,25 @@ func (s *socket) loop() error {
 		Id:   -1,
 	}
 	encoder := newEncoder(s.conn)
-	if err := encoder.Encode(p); err != nil {
-		return err
+	if err = encoder.Encode(p); err != nil {
+		return
 	}
-	s.socketHandler.onPacket(nil, &p) // use default namespace (server's)
+	s.namespace("").onPacket(nil, &p) // use default namespace (server's)
 	for {
 		decoder := newDecoder(s.conn)
 		var p packet
-		if err := decoder.Decode(&p); err != nil {
-			return err
+		if err = decoder.Decode(&p); err != nil {
+			return
 		}
-		ret, err := s.socketHandler.onPacket(decoder, &p)
+		ns := s.namespace(p.NSP)
+		var ret []interface{}
+		ret, err = ns.onPacket(decoder, &p)
 		if err != nil {
-			return err
+			return
 		}
 		switch p.Type {
 		case _CONNECT:
-			s.namespace = p.NSP
-			s.sendConnect()
+			ns.sendConnect()
 		case _BINARY_EVENT:
 			fallthrough
 		case _EVENT:
@@ -163,16 +132,17 @@ func (s *socket) loop() error {
 				p := packet{
 					Type: _ACK,
 					Id:   p.Id,
-					NSP:  s.namespace,
+					NSP:  p.NSP,
 					Data: ret,
 				}
 				encoder := newEncoder(s.conn)
-				if err := encoder.Encode(p); err != nil {
-					return err
+				if err = encoder.Encode(p); err != nil {
+					return
 				}
 			}
 		case _DISCONNECT:
-			return nil
+			ns.LeaveAll()
+			ns.disconnected = true
 		}
 	}
 }
