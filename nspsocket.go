@@ -7,7 +7,9 @@ import "reflect"
 type nspSocket struct {
 	*socketHandler
 	*socket
-	disconnected bool
+	// only connected flag is needed as this flag is view from client to server
+	// and default leave it as zero value false.
+	connected bool
 }
 
 func newNspSocket(s *socket, base *baseHandler) *nspSocket {
@@ -84,13 +86,16 @@ func (n *nspSocket) send(args []interface{}) error {
 	return encoder.Encode(packet)
 }
 
+// sendConnect sends connection event to client. This event always trigger from
+// client as server is always the listening party waiting for accept connection.
+// sendConnect basically send back the callback to client that use connect.
 func (n *nspSocket) sendConnect() error {
 	packet := packet{
 		Type: _CONNECT,
 		Id:   -1,
 		NSP:  n.name,
 	}
-	n.disconnected = false
+	n.connected = true
 	encoder := newEncoder(n.conn)
 	return encoder.Encode(packet)
 }

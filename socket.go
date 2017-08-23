@@ -86,7 +86,7 @@ func (s *socket) namespace(nsp string) *nspSocket {
 func (s *socket) loop() (err error) {
 	defer func() {
 		for k, v := range s.nsps {
-			if v.disconnected {
+			if v.name != "" && !v.connected {
 				continue
 			}
 			v.LeaveAll()
@@ -97,7 +97,7 @@ func (s *socket) loop() (err error) {
 				NSP:  k,
 			}
 			v.onPacket(nil, &p)
-			v.disconnected = true
+			v.connected = false
 		}
 	}()
 
@@ -141,8 +141,11 @@ func (s *socket) loop() (err error) {
 				}
 			}
 		case _DISCONNECT:
+			if ns.name == "" {
+				return nil
+			}
 			ns.LeaveAll()
-			ns.disconnected = true
+			ns.connected = false
 		}
 	}
 }
