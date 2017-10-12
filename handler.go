@@ -19,7 +19,6 @@ func newBaseHandler(name string, broadcast BroadcastAdaptor) *baseHandler {
 		events:    make(map[string]*caller),
 		name:      name,
 		broadcast: broadcast,
-		evMu:      sync.Mutex{},
 	}
 }
 
@@ -42,10 +41,20 @@ type socketHandler struct {
 }
 
 func newSocketHandler(ns *nspSocket, base *baseHandler) *socketHandler {
+	events := make(map[string]*caller)
+	base.evMu.Lock()
+	for k, v := range base.events {
+		events[k] = v
+	}
+	base.evMu.Unlock()
 	return &socketHandler{
-		baseHandler: base,
-		socket:      ns,
-		rooms:       make(map[string]struct{}),
+		baseHandler: &baseHandler{
+			events:    events,
+			name:      base.name,
+			broadcast: base.broadcast,
+		},
+		socket: ns,
+		rooms:  make(map[string]struct{}),
 	}
 }
 
